@@ -59,7 +59,9 @@ Zaregistrovány jsou EPSG:5514, 3857, 4326, 4258, 32633, 32634 a 25833; Esri 102
 
 Pro ruční zveřejnění přes Netlify Drop je připraven [návod](publikace/NASAZENI.md), [návrh příspěvku na LinkedIn](publikace/LINKEDIN.md) a archiv `release/gisview-dist.zip`. Obnovíte ho příkazem `npm run package` (Windows / PowerShell). Pro nasazování z Gitu je připraven `netlify.toml`.
 
-Repozitář obsahuje také `.github/workflows/deploy-pages.yml`. Po zapnutí GitHub Pages přes **Settings → Pages → Source: GitHub Actions** se po každém pushi do `main` automaticky sestaví a zveřejní webová aplikace. Výsledná adresa bude `https://<uživatel>.github.io/<repozitář>/`.
+Repozitář obsahuje také `.github/workflows/deploy-pages.yml`. Po každém pushi do `main` se automaticky sestaví a zveřejní webová aplikace přes GitHub Pages.
+
+**Živá aplikace:** [freedom7979.github.io/GISView](https://freedom7979.github.io/GISView/)
 
 Celý obsah **`dist`** lze umístit na statický HTTP(S) server, včetně podadresáře. Není potřebná databáze, přístupový klíč ani vlastní backend. Vestavěné písmo se servíruje z aplikace. Náhled Vite je určen pro lokální ověření; na veřejný provoz použijte běžný statický hosting, IIS, nginx apod.
 
