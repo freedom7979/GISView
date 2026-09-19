@@ -56,6 +56,19 @@ test('tlačítka zoomují ihned a resize panelu nepřeruší ovládání', async
   await expect.poll(async () => (await view(page)).resolution).toBeLessThan(initial.resolution * .8);
 });
 
+test('široký viewport po sbalení panelu využije celou šířku mapy', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await ready(page);
+  await page.getByRole('button', { name: 'Skrýt panel vrstev' }).click();
+  await expect(page.locator('.sidebar')).toBeHidden();
+  const sizes = await page.evaluate(() => {
+    const workspace = document.querySelector('.workspace')!.getBoundingClientRect();
+    const map = document.querySelector('.map-panel')!.getBoundingClientRect();
+    return { workspace: workspace.width, map: map.width };
+  });
+  expect(sizes.map).toBeGreaterThan(sizes.workspace - 10);
+});
+
 test('grafitová je výchozí, barva se přepíná a přetrvá obnovení', async ({ page }) => {
   await ready(page);
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'graphite');
