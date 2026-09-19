@@ -39,6 +39,11 @@ describe('připojení služeb', () => {
     expect(result.searchParams.has('request')).toBe(false);
     expect(() => cleanUrl('javascript:alert(1)')).toThrow();
   });
+  it('rozpozná veřejnou ArcGIS FeatureServer vrstvu jako dotazovatelný zdroj', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ type: 'Feature Layer', id: 1, name: 'Adresní místa', spatialReference: { latestWkid: 5514 }, capabilities: 'Query' }))));
+    const info = await discover('Esri', 'https://example.org/FeatureServer/1');
+    expect(info.choices[0]).toMatchObject({ name: '1', title: 'Adresní místa', queryable: true, crs: ['EPSG:5514'] });
+  });
   it('dědí CRS a queryable z rodičovské WMS vrstvy', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(`<WMS_Capabilities xmlns="http://www.opengis.net/wms" version="1.3.0"><Service><Title>Test</Title></Service><Capability><Layer queryable="1"><Title>Root</Title><CRS>EPSG:5514</CRS><Layer><Name>parcels</Name><Title>Parcely</Title></Layer></Layer></Capability></WMS_Capabilities>`)));
     const info = await discover('WMS', 'https://example.org/inheritance');

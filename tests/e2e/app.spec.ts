@@ -53,6 +53,21 @@ test('změna podkladu, katalog WMTS a WMS v JTSK', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('živé adresní body RSO z ČSÚ se načtou jako vektorová vrstva', async ({ page }) => {
+  await ready(page);
+  await catalog(page);
+  await page.getByRole('button', { name: 'Esri', exact: true }).click();
+  const layer = page.getByRole('button', { name: 'Přidat Adresní body · ČSÚ RSO', exact: true });
+  await expect(layer).toBeVisible();
+  const response = page.waitForResponse((r) => r.url().includes('/Open_data_RSO/FeatureServer/1/query') && new URL(r.url()).searchParams.get('f') === 'geojson');
+  await layer.click();
+  await expect(layer).toBeDisabled();
+  await page.getByRole('button', { name: 'Zavřít dialog' }).click();
+  expect((await response).ok()).toBeTruthy();
+  await expect(page.locator('.layers-list')).toContainText('Adresní body · ČSÚ RSO');
+  await expect(page.locator('.layer-notice')).toContainText(/adresních bodů ČSÚ/);
+});
+
 test('živé WFS GML parcely se načtou a lze je vybrat', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', (error) => errors.push(error.message));
   await ready(page);

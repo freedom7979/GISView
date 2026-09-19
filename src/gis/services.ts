@@ -62,9 +62,10 @@ export async function discover(protocol: Protocol, input: string, signal?: Abort
   let info: ServiceInfo;
   if (protocol === 'Esri') {
     const raw = await fetchJson(requestUrl(url, { f: 'json' }), signal);
-    if (!raw.spatialReference || !raw.layers) throw new Error('Zadejte kořenovou adresu služby Esri MapServer.');
+    const layers = raw.layers || (raw.type === 'Feature Layer' ? [{ id: raw.id ?? 0, name: raw.name || 'Feature Layer', type: raw.type }] : []);
+    if (!raw.spatialReference || !layers.length) throw new Error('Zadejte kořenovou adresu služby Esri nebo adresu FeatureServer vrstvy.');
     const crs = normalizeCrs(raw.spatialReference.latestWkid || raw.spatialReference.wkid);
-    info = { protocol, url, title: raw.mapName || 'Esri MapServer', version: String(raw.currentVersion), raw, choices: raw.layers.filter((l: any) => !l.subLayerIds).map((l: any) => ({ name: String(l.id), title: l.name, crs: [crs], queryable: /Query|Data/i.test(raw.capabilities) })) };
+    info = { protocol, url, title: raw.mapName || raw.name || 'Esri služba', version: String(raw.currentVersion || raw.serviceDescription || ''), raw: { ...raw, layers }, choices: layers.filter((l: any) => !l.subLayerIds).map((l: any) => ({ name: String(l.id), title: l.name, crs: [crs], queryable: raw.type === 'Feature Layer' || /Query|Data/i.test(raw.capabilities) })) };
   } else if (protocol === 'WMS') {
     const text = await fetchText(requestUrl(url, { SERVICE: 'WMS', REQUEST: 'GetCapabilities' }), signal);
     const raw = new WMSCapabilities().read(text);

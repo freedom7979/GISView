@@ -111,7 +111,7 @@ export function useMap() {
       const entries = entriesRef.current.filter((entry) => entry.layer.getVisible() && (entry.spec.opacity ?? 1) > 0 && entry.queryable);
       const local: Hit[] = [];
       map.forEachFeatureAtPixel(event.pixel, (feature, layer) => {
-        const entry = entries.find((e) => e.layer === layer && e.spec.protocol === 'WFS');
+        const entry = entries.find((e) => e.layer === layer && (e.spec.protocol === 'WFS' || (e.spec.protocol === 'Esri' && e.info.raw.type === 'Feature Layer')));
         if (entry && feature instanceof Feature) local.push(featureHit(feature, entry.spec.title, local.length));
       }, { hitTolerance: 6 });
       const remote = entries.filter((e) => ['Esri', 'WMS'].includes(e.spec.protocol));

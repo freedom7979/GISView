@@ -15,7 +15,7 @@ import GML2 from 'ol/format/GML2.js';
 import { Fill, Stroke, Style, Circle as CircleStyle } from 'ol/style.js';
 import type Feature from 'ol/Feature.js';
 import type Geometry from 'ol/geom/Geometry.js';
-import type { LayerSpec, MapLayer } from '../types';
+import type { LayerSpec, MapLayer, ServiceInfo } from '../types';
 import { discover, fetchText, requestUrl } from './services';
 import { normalizeCrs, pickCrs, requireProjection, wfsBbox } from './projections';
 
@@ -24,6 +24,58 @@ export const selectionStyle = new Style({
   stroke: new Stroke({ color: '#e2ff96', width: 4 }),
   image: new CircleStyle({ radius: 9, fill: new Fill({ color: '#385d3c' }), stroke: new Stroke({ color: '#e2ff96', width: 4 }) }),
 });
+
+function createEsriFeatureLayer(spec: LayerSpec, info: ServiceInfo, crs: string, common: { visible: boolean; opacity: number; properties: { id: string; title: string } }, signal: AbortSignal, onNotice: (id: string, notice?: string) => void) {
+  let requestId = 0;
+  let activeRequest: AbortController | undefined;
+  let previousExtent: number[] | undefined;
+  let previousKey = '';
+  const source = new VectorSource<Feature<Geometry>>({
+    attributions: '© <a href="https://csu.gov.cz/" target="_blank" rel="noopener noreferrer">ČSÚ</a>',
+    wrapX: false,
+    strategy: (extent, resolution) => {
+      const key = `${extent.join(',')}:${resolution}`;
+      if (key !== previousKey && previousExtent) source.removeLoadedExtent(previousExtent);
+      previousExtent = extent.slice(); previousKey = key;
+      return [extent];
+    },
+    loader: async (extent, resolution, projection) => {
+      const current = ++requestId;
+      activeRequest?.abort();
+      activeRequest = new AbortController();
+      const meters = resolution * (projection.getMetersPerUnit() || 1);
+      if (meters > 15) {
+        onNotice(spec.id, 'Pro zobrazení adresních bodů ČSÚ přibližte mapu (rozlišení nejvýše 15 m/px).');
+        source.clear();
+        return [];
+      }
+      onNotice(spec.id, 'Načítání adresních bodů ČSÚ…');
+      try {
+        const url = requestUrl(`${info.url}/query`, {
+          where: '1=1', geometry: extent.join(','), geometryType: 'esriGeometryEnvelope', inSR: crs.replace(/^EPSG:/, ''),
+          spatialRel: 'esriSpatialRelIntersects', outFields: '*', returnGeometry: true, outSR: '4326',
+          f: 'geojson', resultRecordCount: 1000,
+        });
+        const text = await fetchText(url, AbortSignal.any([signal, activeRequest.signal]));
+        if (current !== requestId || signal.aborted) return [];
+        const payload = JSON.parse(text);
+        if (payload.error) throw new Error(payload.error.message || 'ČSÚ odmítlo dotaz na adresní body.');
+        const features = new GeoJSON().readFeatures(text, { dataProjection: 'EPSG:4326', featureProjection: crs }) as Feature<Geometry>[];
+        source.clear();
+        onNotice(spec.id, payload.properties?.exceededTransferLimit ? `Zobrazeno prvních ${features.length.toLocaleString('cs-CZ')} adresních bodů. Přibližte mapu pro podrobnější výřez.` : `${features.length.toLocaleString('cs-CZ')} adresních bodů ČSÚ`);
+        return features;
+      } catch (error) {
+        if (current === requestId && !signal.aborted) onNotice(spec.id, error instanceof Error ? error.message : 'Načtení adresních bodů ČSÚ se nezdařilo.');
+        throw error;
+      }
+    },
+  });
+  return new VectorLayer({
+    ...common,
+    source,
+    style: new Style({ image: new CircleStyle({ radius: 4, fill: new Fill({ color: '#5c8569' }), stroke: new Stroke({ color: '#f4f7df', width: 1.2 }) }) }),
+  });
+}
 
 export async function createMapLayer(spec: LayerSpec, preferred: string | undefined, signal: AbortSignal, onNotice: (id: string, notice?: string) => void): Promise<MapLayer> {
   const info = await discover(spec.protocol, spec.url, signal);
@@ -36,10 +88,14 @@ export async function createMapLayer(spec: LayerSpec, preferred: string | undefi
   const crs = spec.protocol === 'Esri' ? preferred || normalizeCrs(info.raw.spatialReference.latestWkid || info.raw.spatialReference.wkid) : pickCrs(choices[0].crs, preferred);
   requireProjection(crs);
   if (spec.protocol !== 'Esri') choices.forEach((c) => pickCrs(c.crs, crs));
-  const attribution = /(^|\.)cuzk\.(gov\.)?cz$/.test(new URL(info.url).hostname) ? '© <a href="https://cuzk.gov.cz/" target="_blank" rel="noopener noreferrer">ČÚZK</a>' : new URL(info.url).hostname;
+  const hostname = new URL(info.url).hostname;
+  const attribution = /(^|\.)cuzk\.(gov\.)?cz$/.test(hostname) ? '© <a href="https://cuzk.gov.cz/" target="_blank" rel="noopener noreferrer">ČÚZK</a>' : /(^|\.)csu\.gov\.cz$/.test(hostname) ? '© <a href="https://csu.gov.cz/" target="_blank" rel="noopener noreferrer">ČSÚ</a>' : hostname;
   const common = { visible: spec.visible ?? true, opacity: spec.opacity ?? 1, properties: { id: spec.id, title: spec.title } };
   let layer: MapLayer['layer'];
   if (spec.protocol === 'Esri') {
+    if (info.raw.type === 'Feature Layer') {
+      layer = createEsriFeatureLayer(spec, info, crs, common, signal, onNotice);
+    } else {
     const tile = info.raw.tileInfo;
     const native = normalizeCrs(info.raw.spatialReference.latestWkid || info.raw.spatialReference.wkid);
     if (tile && native === crs && !spec.layerNames?.length) {
@@ -51,6 +107,7 @@ export async function createMapLayer(spec: LayerSpec, preferred: string | undefi
       layer = new TileLayer({ ...common, source });
     } else {
       layer = new ImageLayer({ ...common, source: new ImageArcGISRest({ url: info.url, projection: crs, crossOrigin: 'anonymous', attributions: attribution, ratio: 1, params: { FORMAT: 'png32', TRANSPARENT: true, ...(spec.layerNames?.length ? { LAYERS: `show:${names.join(',')}` } : {}) } }) });
+    }
     }
   } else if (spec.protocol === 'WMS') {
     layer = new ImageLayer({ ...common, source: new ImageWMS({ url: info.url, projection: crs, crossOrigin: 'anonymous', attributions: attribution, ratio: 1, params: { LAYERS: names.join(','), VERSION: info.version, FORMAT: 'image/png', TRANSPARENT: true } }) });
@@ -125,7 +182,7 @@ export async function createMapLayer(spec: LayerSpec, preferred: string | undefi
     });
     layer = new VectorLayer({ ...common, source, style: new Style({ stroke: new Stroke({ color: '#f6d297', width: 2 }), fill: new Fill({ color: 'rgba(246,210,151,0.07)' }), image: new CircleStyle({ radius: 5, fill: new Fill({ color: '#f6d297' }), stroke: new Stroke({ color: '#4c3f23', width: 1.5 }) }) }) });
   }
-  const source = (layer as TileLayer<XYZ> | ImageLayer<ImageWMS>).getSource();
+  const source = (layer as TileLayer<XYZ> | ImageLayer<ImageWMS> | VectorLayer<VectorSource<Feature<Geometry>>>).getSource();
   // Surface raster failures instead of leaving the user with a silent blank map.
   source?.on(['tileloaderror', 'imageloaderror'] as any, () => onNotice(spec.id, 'Mapový obraz se nepodařilo načíst. Zkuste vrstvu obnovit.'));
   source?.on(['tileloadend', 'imageloadend'] as any, () => onNotice(spec.id, undefined));

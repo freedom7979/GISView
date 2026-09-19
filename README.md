@@ -37,6 +37,7 @@ Na jiném počítači nejprve spusťte `npm ci`. Doporučeno Node.js 24 LTS; pro
 - Zapínání, vypínání, krytí, pořadí, obnovení a odebrání datových vrstev.
 - Výběr prvku, zvýraznění geometrie, tabulka vlastností, přechod mezi výsledky, přiblížení na prvek a export vlastností do JSON.
 - Esri Identify; WMS GetFeatureInfo pro dotazovatelné vrstvy; výběr lokálně načtených vektorů WFS.
+- Živé adresní body RSO z ČSÚ jako vektorová vrstva ArcGIS FeatureServeru v JTSK, včetně atributů adresních a územních identifikací.
 - Vyhledávání měst, adresních míst RÚIAN přes službu ČÚZK a GPS souřadnic `délka, šířka` (např. `14.42, 50.09`) nebo s hemisférami `48.9510717N, 14.5156139E`. GPS se při navigaci převede do EPSG aktuálního podkladu.
 - Přiblížení kolečkem a posun prvním tahem bez předchozího kliknutí/fokusu. Tlačítka +/−, dotyková gesta, celá ČR, sever, měřítko a souřadnice kurzoru.
 - Automatické zjištění polohy po souhlasu prohlížeče, modrá značka a oblast přesnosti. Opožděná poloha nepřesune mapu po ruční navigaci; tlačítko Moje poloha znovu zaměří okolí.
@@ -111,6 +112,7 @@ publikace/                  Postup zveřejnění a příspěvek LinkedIn
 - [Esri služby ČÚZK](https://ags.cuzk.gov.cz/arcgis/rest/services)
 - [Ověření adresy VDP k RÚIAN](https://vdp.cuzk.gov.cz/vdp/ruian/overeniadresy)
 - [Vyhledávací služba RÚIAN GeocodeSOE](https://ags.cuzk.gov.cz/arcgis/rest/services/RUIAN/MapServer/exts/GeocodeSOE)
+- [ČSÚ RSO – Adresní místa (FeatureServer)](https://geodata.csu.gov.cz/server/rest/services/Hosted/Open_data_RSO/FeatureServer/1)
 - [Mapové služby ČÚZK a podmínky poskytování](https://services.cuzk.gov.cz/)
 - [OpenLayers](https://openlayers.org/)
 - [Material Design 3](https://m3.material.io/)
