@@ -3,6 +3,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { transform } from 'ol/proj.js';
 import { normalizeCrs, pickCrs, wfsBbox } from '../src/gis/projections';
 import { cleanUrl, discover, fetchText, requestUrl } from '../src/gis/services';
+import { parseCoordinateQuery, resolveAddress, suggestAddresses } from '../src/gis/addressSearch';
 
 afterEach(() => vi.unstubAllGlobals());
 describe('souřadnicové systémy', () => {
@@ -57,5 +58,27 @@ describe('připojení služeb', () => {
     const text = '<FeatureCollection><member>valid feature</member><truncatedResponse><ExceptionReport><ExceptionText>Response truncated</ExceptionText></ExceptionReport></truncatedResponse></FeatureCollection>';
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(text)));
     await expect(fetchText('https://example.org/truncated')).resolves.toBe(text);
+  });
+});
+describe('vyhledávání adres a souřadnic', () => {
+  it('převede GPS s hemisférami ve tvaru šířka, délka na WGS 84 lon/lat', () => {
+    expect(parseCoordinateQuery('48.9510717N, 14.5156139E')).toEqual({ lonLat: [14.5156139, 48.9510717], format: 'hemisphere' });
+    expect(parseCoordinateQuery('48.9510717° N, 14.5156139° E')).toEqual({ lonLat: [14.5156139, 48.9510717], format: 'hemisphere' });
+    expect(parseCoordinateQuery('14.5156139E, 48.9510717N')?.lonLat).toEqual([14.5156139, 48.9510717]);
+  });
+  it('zachová dosavadní pořadí desetinných souřadnic délka, šířka', () => {
+    expect(parseCoordinateQuery('14.42, 50.09')).toEqual({ lonLat: [14.42, 50.09], format: 'decimal' });
+    expect(parseCoordinateQuery('181, 50.09')).toBeNull();
+  });
+  it('načte našeptávač a souřadnice adresy z RÚIAN služby', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ suggestions: [{ text: 'Lidická 10, 33021 Líně', magicKey: '1424587' }] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ locations: [{ name: 'Lidická 10, 33021 Líně', feature: { geometry: { x: 13.2602911198, y: 49.691965223 }, attributes: {} } }] })));
+    vi.stubGlobal('fetch', fetchMock);
+    const suggestions = await suggestAddresses('Lidická 10');
+    expect(suggestions).toEqual([{ text: 'Lidická 10, 33021 Líně', magicKey: '1424587' }]);
+    await expect(resolveAddress(suggestions[0])).resolves.toMatchObject({ coordinates: [13.2602911198, 49.691965223] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toContain('outSR=4326');
   });
 });

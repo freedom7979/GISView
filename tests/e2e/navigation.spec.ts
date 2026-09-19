@@ -121,3 +121,20 @@ test('sdílený výřez má přednost před GPS', async ({ page, context }) => {
   await expect(page.locator('.location-context')).toContainText('Sdílený výřez');
   expect((await view(page)).center[0]).toBeCloseTo(-743278.9625297, 1);
 });
+
+test('vyhledá adresu RÚIAN a GPS s hemisférami', async ({ page }) => {
+  await ready(page);
+  const search = page.getByRole('textbox', { name: 'Hledat město nebo souřadnice' });
+  await search.fill('Lidická 10');
+  const address = page.getByRole('button', { name: /Lidická 10, 33021 Líně/ }).first();
+  await expect(address).toBeVisible({ timeout: 20000 });
+  await address.click();
+  await expect(search).toHaveValue('Lidická 10, 33021 Líně');
+  const addressCenter = transform([13.26029111982515, 49.69196522299213], 'EPSG:4326', 'EPSG:5514');
+  await expect.poll(async () => Math.hypot((await view(page)).center[0] - addressCenter[0], (await view(page)).center[1] - addressCenter[1])).toBeLessThan(2);
+
+  await search.fill('48.9510717N, 14.5156139E');
+  await search.press('Enter');
+  const gpsCenter = transform([14.5156139, 48.9510717], 'EPSG:4326', 'EPSG:5514');
+  await expect.poll(async () => Math.hypot((await view(page)).center[0] - gpsCenter[0], (await view(page)).center[1] - gpsCenter[1])).toBeLessThan(2);
+});

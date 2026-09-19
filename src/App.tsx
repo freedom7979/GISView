@@ -5,6 +5,7 @@ import { ThemePicker } from './components/ThemePicker';
 import { LocationContext } from './components/LocationContext';
 import { useMap } from './hooks/useMap';
 import { CATALOG, PLACES } from './catalog';
+import { parseCoordinateQuery, resolveAddress, suggestAddresses, type AddressSuggestion } from './gis/addressSearch';
 import type { Hit, MapLayer } from './types';
 import type { ReactNode } from 'react';
 
@@ -34,6 +35,9 @@ export default function App() {
   const [expanded, setExpanded] = useState<string | null>('parcels');
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [addressResults, setAddressResults] = useState<AddressSuggestion[]>([]);
+  const [addressLoading, setAddressLoading] = useState(false);
+  const [addressError, setAddressError] = useState('');
   const [toast, setToast] = useState('');
   const [about, setAbout] = useState(false);
   const aboutDialog = useRef<HTMLDialogElement>(null);
@@ -44,15 +48,48 @@ export default function App() {
     const close = (event: PointerEvent) => { if (searchRef.current && !searchRef.current.contains(event.target as Node)) setSearchOpen(false); };
     document.addEventListener('pointerdown', close); return () => document.removeEventListener('pointerdown', close);
   }, []);
+  useEffect(() => {
+    const query = search.trim();
+    setAddressResults([]);
+    setAddressError('');
+    if (query.length < 2 || parseCoordinateQuery(query)) { setAddressLoading(false); return; }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setAddressLoading(true);
+      void suggestAddresses(query, controller.signal).then((results) => {
+        if (!controller.signal.aborted) setAddressResults(results);
+      }).catch((error: unknown) => {
+        if (!controller.signal.aborted) setAddressError(error instanceof Error ? error.message : 'Adresy se nepodařilo načíst.');
+      }).finally(() => {
+        if (!controller.signal.aborted) setAddressLoading(false);
+      });
+    }, 220);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [search]);
   const overlays = map.layers.filter((l) => l.spec.kind === 'overlay').reverse();
   const base = map.layers.find((l) => l.spec.kind === 'base');
   const hit = map.hits[map.selectedHit];
   const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const places = PLACES.filter((p) => fold(p.name).includes(fold(search)));
-  const parsedCoordinates = search.trim().match(/^(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)$/);
-  const lonLat = parsedCoordinates ? [Number(parsedCoordinates[1]), Number(parsedCoordinates[2])] : null;
-  const validLonLat = lonLat && Math.abs(lonLat[0]) <= 180 && Math.abs(lonLat[1]) <= 85;
+  const parsedCoordinate = parseCoordinateQuery(search);
+  const lonLat = parsedCoordinate?.lonLat ?? null;
   function navigate(coordinates: number[], title: string) { map.goTo(coordinates); setSearch(title); setSearchOpen(false); }
+  async function selectAddress(suggestion: AddressSuggestion) {
+    setAddressLoading(true); setAddressError('');
+    try {
+      const result = await resolveAddress(suggestion);
+      navigate(result.coordinates, result.name);
+    } catch (error) {
+      setAddressError(error instanceof Error ? error.message : 'Adresu se nepodařilo načíst.');
+    } finally {
+      setAddressLoading(false);
+    }
+  }
+  function submitSearch() {
+    if (lonLat) navigate(lonLat, search.trim());
+    else if (addressResults[0]) void selectAddress(addressResults[0]);
+    else if (places[0]) navigate(places[0].coordinates, places[0].name);
+  }
   function layerCard(entry: MapLayer, index: number) {
     const spec = entry.spec;
     return <article className={`layer-card ${!spec.visible ? 'is-hidden' : ''}`} key={spec.id}>
@@ -79,8 +116,8 @@ export default function App() {
       </aside>
       <section className="map-panel" aria-label="Interaktivní mapa">
         <div ref={map.target} className="map-canvas" tabIndex={0} aria-label="Mapa. Posouvejte tažením, přibližujte kolečkem a kliknutím vyberte prvek." />
-        <div className="map-top"><div className="search-container" ref={searchRef}><div className="map-search">{!sidebar && <IconButton label="Zobrazit panel vrstev" onClick={() => setSidebar(true)}><Layers3 size={20} /></IconButton>}<Search size={21} /><input aria-label="Hledat město nebo souřadnice" placeholder="Kam se podíváme?" value={search} onFocus={() => setSearchOpen(true)} onChange={(e) => { setSearch(e.target.value); setSearchOpen(true); }} onKeyDown={(e) => { if (e.key === 'Escape') setSearchOpen(false); if (e.key === 'Enter') { if (validLonLat && lonLat) navigate(lonLat, search); else if (places[0]) navigate(places[0].coordinates, places[0].name); } }} />{search ? <IconButton label="Vymazat hledání" onClick={() => { setSearch(''); setSearchOpen(true); }}><X size={17} /></IconButton> : <span className="search-shortcut"><MapPin size={17} /></span>}</div>
-          {searchOpen && <div className="search-results"><div className="eyebrow">{search ? 'VÝSLEDKY HLEDÁNÍ' : 'VYBRANÁ MĚSTA'}</div>{validLonLat && lonLat && <button onClick={() => navigate(lonLat, search)}><Crosshair size={18} /><span><strong>{search}</strong><small>Souřadnice WGS 84 · délka, šířka</small></span><ChevronRight size={16} /></button>}{places.map((place) => <button key={place.name} onClick={() => navigate(place.coordinates, place.name)}><MapPin size={18} /><span><strong>{place.name}</strong><small>{place.detail}</small></span><ChevronRight size={16} /></button>)}{!places.length && !validLonLat && <p>Zkuste vybrané krajské město nebo souřadnice, např. 14.42, 50.09.</p>}<div className="search-hint">Vybraná města nebo GPS ve formátu délka, šířka</div></div>}
+        <div className="map-top"><div className="search-container" ref={searchRef}><div className="map-search">{!sidebar && <IconButton label="Zobrazit panel vrstev" onClick={() => setSidebar(true)}><Layers3 size={20} /></IconButton>}<Search size={21} /><input aria-label="Hledat město nebo souřadnice" placeholder="Adresa, město nebo souřadnice" value={search} onFocus={() => setSearchOpen(true)} onChange={(e) => { setSearch(e.target.value); setSearchOpen(true); }} onKeyDown={(e) => { if (e.key === 'Escape') setSearchOpen(false); if (e.key === 'Enter') submitSearch(); }} />{search ? <IconButton label="Vymazat hledání" onClick={() => { setSearch(''); setSearchOpen(true); }}><X size={17} /></IconButton> : <span className="search-shortcut"><MapPin size={17} /></span>}</div>
+          {searchOpen && <div className="search-results"><div className="eyebrow">{search ? 'VÝSLEDKY HLEDÁNÍ' : 'VYBRANÁ MĚSTA'}</div>{lonLat && <button onClick={() => navigate(lonLat, search.trim())}><Crosshair size={18} /><span><strong>{search}</strong><small>{parsedCoordinate?.format === 'hemisphere' ? 'GPS WGS 84 · převedu do mapy' : 'Souřadnice WGS 84 · délka, šířka'}</small></span><ChevronRight size={16} /></button>}{places.map((place) => <button key={place.name} onClick={() => navigate(place.coordinates, place.name)}><MapPin size={18} /><span><strong>{place.name}</strong><small>{place.detail}</small></span><ChevronRight size={16} /></button>)}{addressResults.map((address) => <button key={address.magicKey} disabled={addressLoading} onClick={() => void selectAddress(address)}><MapPin size={18} /><span><strong>{address.text}</strong><small>RÚIAN · adresní místo ČÚZK</small></span><ChevronRight size={16} /></button>)}{addressLoading && <p><LoaderCircle size={15} className="spin" /> Hledám adresy v RÚIAN…</p>}{addressError && <p role="alert">{addressError}</p>}{!addressLoading && !addressError && !places.length && !addressResults.length && !lonLat && <p>Zadejte město, adresu nebo GPS, např. 48.9510717N, 14.5156139E.</p>}<div className="search-hint">Adresy vyhledává RÚIAN ČÚZK · GPS WGS 84 se převede do aktuálního EPSG mapy</div></div>}
         </div><span className="map-live-badge">{map.loadingMap || map.busy ? <LoaderCircle size={14} className="spin" /> : <span className="tiny-dot" />}{map.busy ? 'Připojuji vrstvy' : map.loadingMap ? 'Načítání mapy' : 'Živá data ČÚZK'}</span></div>
         {!map.ready && <div className="map-loading"><div className="loading-symbol"><Globe2 size={34} /></div><h2>{map.busy ? 'Váš svět se načítá' : 'Podklad není dostupný'}</h2><p>{map.busy ? 'Připojujeme mapové služby ČÚZK…' : 'Zkontrolujte připojení a zkuste to znovu.'}</p>{!map.busy && <button className="button primary" onClick={() => window.location.reload()}><RefreshCw size={17} /> Zkusit znovu</button>}</div>}
         <div className="map-tools"><IconButton label="Celá Česká republika" onClick={map.fitCountry}><Maximize size={21} /></IconButton><IconButton label="Moje poloha" onClick={map.location.locate}>{map.location.status === 'locating' ? <LoaderCircle size={21} className="spin" /> : <Focus size={21} />}</IconButton><div className="zoom-controls"><IconButton label="Přiblížit mapu" onClick={() => map.zoom(1)}><Plus size={22} /></IconButton><span /><IconButton label="Oddálit mapu" onClick={() => map.zoom(-1)}><Minus size={22} /></IconButton></div><IconButton label="Otočit mapu na sever" className="compass-button" onClick={() => map.mapRef.current?.getView().animate({ rotation: 0, duration: 300 })}><Compass size={23} /><small>N</small></IconButton></div>
